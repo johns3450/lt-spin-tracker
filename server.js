@@ -4,7 +4,6 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 
 const app = express();
-const port = 4000;  // Change if needed.
 
 app.use(cors());
 app.use(bodyParser.json());
@@ -89,12 +88,17 @@ app.post('/api/updateMaxSpins', async (req, res) => {
     }
 });
 
+const port = 4000;
 const server = app.listen(port, '0.0.0.0', () => {
-    console.log(`🚀 Server running on port ${port}`);
-  });
-  
-  // Add an error handler to log errors (like EADDRINUSE)
-  server.on('error', (err) => {
-    console.error("Server error:", err);
+  console.log(`🚀 Server running on port ${port}`);
+});
+
+server.on('error', (err) => {
+  console.error("Server error:", err);
+  if (err.code === 'EADDRINUSE') {
+    console.error("Port is in use. Waiting 2 seconds before exiting...");
+    setTimeout(() => process.exit(1), 2000); // wait 2 seconds before exiting
+  } else {
     process.exit(1);
-  });
+  }
+});
