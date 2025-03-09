@@ -88,17 +88,20 @@ app.post('/api/updateMaxSpins', async (req, res) => {
     }
 });
 
-const port = 4000;
+const port = process.env.PORT || 4000;
 const server = app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${port}`);
 });
 
 server.on('error', (err) => {
   console.error("Server error:", err);
-  if (err.code === 'EADDRINUSE') {
-    console.error("Port is in use. Waiting 2 seconds before exiting...");
-    setTimeout(() => process.exit(1), 2000); // wait 2 seconds before exiting
-  } else {
-    process.exit(1);
-  }
+  process.exit(1);
+});
+
+// Graceful shutdown on SIGINT
+process.on('SIGINT', () => {
+  console.log('Shutting down gracefully...');
+  server.close(() => {
+    process.exit(0);
+  });
 });
