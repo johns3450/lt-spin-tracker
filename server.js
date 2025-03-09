@@ -89,6 +89,12 @@ app.post('/api/updateMaxSpins', async (req, res) => {
     }
 });
 
-app.listen(port, () => {
+const server = app.listen(port, '0.0.0.0', () => {
     console.log(`🚀 Server running on port ${port}`);
-});
+  });
+  
+  // Add an error handler to log errors (like EADDRINUSE)
+  server.on('error', (err) => {
+    console.error("Server error:", err);
+    process.exit(1);
+  });
