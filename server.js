@@ -38,7 +38,7 @@ async function connectToDB() {
       // Ensure a document exists in spins collection to store the global spin count
       const existingSpinData = await spinsCollection.findOne({});
       if (!existingSpinData) {
-        await spinsCollection.insertOne({ totalSpins: 0, maxSpins: 1000 });
+        await spinsCollection.insertOne({ totalSpins: 0, maxSpins: 120 });
       }
   
       console.log("✅ Connected to MongoDB!");
@@ -93,36 +93,23 @@ app.post('/api/updateMaxSpins', async (req, res) => {
 });
 
 // ----- New Endpoints for Email and Outcome Logging -----
-// POST /api/submitEmail - record a new email if not already used, or allow login if spins remain.
+// POST /api/submitEmail - record a new email if not already used.
 app.post('/api/submitEmail', async (req, res) => {
-    try {
-      const { email } = req.body;
-      if (!email) return res.status(400).json({ error: "Email is required" });
-      
-      const allowedSpins = 1; // Set allowed spins per email (adjust as needed)
-      // Check if the email already exists (case-insensitive)
-      const existing = await emailsCollection.findOne({ email: email.toLowerCase() });
-      if (existing) {
-        // If email exists, check if spins remain
-        if (existing.spinsUsed < allowedSpins) {
-          return res.json({ 
-            message: "Email already exists, continuing session.", 
-            spinsUsed: existing.spinsUsed, 
-            allowedSpins: allowedSpins 
-          });
-        } else {
-          return res.status(400).json({ error: "No spins remaining for this email" });
-        }
-      }
-      
-      // Insert new email document with spinsUsed = 0 and outcomes empty.
-      await emailsCollection.insertOne({ email: email.toLowerCase(), spinsUsed: 0, outcomes: [] });
-      res.json({ message: "Email submitted successfully", spinsUsed: 0, allowedSpins: allowedSpins });
-    } catch (error) {
-      res.status(500).json({ error: "Failed to submit email" });
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Email is required" });
+    // Check if email already exists.
+    const existing = await emailsCollection.findOne({ email: email.toLowerCase() });
+    if (existing) {
+      return res.status(400).json({ error: "Email already used" });
     }
-  });
-  
+    // Insert new email document with spinsUsed = 0 and outcomes empty.
+    await emailsCollection.insertOne({ email: email.toLowerCase(), spinsUsed: 0, outcomes: [] });
+    res.json({ message: "Email submitted successfully" });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to submit email" });
+  }
+});
 
 // POST /api/logOutcome - record the outcome for an email.
 app.post('/api/logOutcome', async (req, res) => {
