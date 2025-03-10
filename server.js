@@ -123,49 +123,29 @@ app.post('/api/submitEmail', async (req, res) => {
   });
   
   // ----- Updated /api/logOutcome Endpoint -----
-// POST /api/logOutcome - record the outcome for an email.
-// Accepts an optional flag "logEmail": if false, do not increment the per-email spin count (for spin again outcomes).
-app.post('/api/logOutcome', async (req, res) => {
-  try {
-    const { email, outcome, logEmail } = req.body;
-    if (!email || !outcome) {
-      return res.status(400).json({ error: "Email and outcome are required" });
+  app.post('/api/logOutcome', async (req, res) => {
+    try {
+      const { email, outcome } = req.body;
+      if (!email || !outcome) {
+        return res.status(400).json({ error: "Email and outcome are required" });
+      }
+      const allowedSpins = allowedSpinsPerEmail; // Use dynamic allowed spins
+      const emailDoc = await emailsCollection.findOne({ email: email.toLowerCase() });
+      if (!emailDoc) {
+        return res.status(400).json({ error: "Email not found" });
+      }
+      if (emailDoc.spinsUsed >= allowedSpins) {
+        return res.status(400).json({ error: "No spins remaining for this email" });
+      }
+      await emailsCollection.updateOne(
+        { email: email.toLowerCase() },
+        { $inc: { spinsUsed: 1 }, $push: { outcomes: outcome } }
+      );
+      res.json({ message: "Outcome logged successfully" });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to log outcome" });
     }
-    
-    // First, update the global spin count.
-    const spinData = await spinsCollection.findOne({});
-    if (!spinData) {
-      return res.status(500).json({ error: "No spin data found" });
-    }
-    const newGlobalCount = spinData.totalSpins + 1;
-    await spinsCollection.updateOne({}, { $set: { totalSpins: newGlobalCount } });
-    
-    // If logEmail is explicitly false, do not update the email's spin count.
-    if (logEmail === false) {
-      return res.json({ message: "Outcome logged (spin again), global count updated", totalSpins: newGlobalCount });
-    }
-    
-    const allowedSpins = allowedSpinsPerEmail;
-    const emailDoc = await emailsCollection.findOne({ email: email.toLowerCase() });
-    if (!emailDoc) {
-      return res.status(400).json({ error: "Email not found" });
-    }
-    if (emailDoc.spinsUsed >= allowedSpins) {
-      return res.status(400).json({ error: "No spins remaining for this email" });
-    }
-    
-    // Increment the email's spin count and log the outcome.
-    await emailsCollection.updateOne(
-      { email: email.toLowerCase() },
-      { $inc: { spinsUsed: 1 }, $push: { outcomes: outcome } }
-    );
-    
-    res.json({ message: "Outcome logged successfully", totalSpins: newGlobalCount });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to log outcome" });
-  }
-});
-
+  });
   
   // ----- New Endpoint to Update Allowed Spins per Email -----
   app.post('/api/updateAllowedSpins', async (req, res) => {
