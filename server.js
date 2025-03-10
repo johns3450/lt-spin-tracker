@@ -11,6 +11,8 @@ app.use(bodyParser.json());
 const mongoUri = "mongodb+srv://spinningWheelUser:Pass458.@spinning-wheel.hov4g.mongodb.net/?retryWrites=true&w=majority&appName=spinning-wheel";
 const client = new MongoClient(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true });
 
+let allowedSpinsPerEmail = 1;  // New global variable for allowed spins per email
+
 let db;
 let spinsCollection;  // Global spins document
 let emailsCollection; // To store email info
@@ -38,7 +40,7 @@ async function connectToDB() {
       // Ensure a document exists in spins collection to store the global spin count
       const existingSpinData = await spinsCollection.findOne({});
       if (!existingSpinData) {
-        await spinsCollection.insertOne({ totalSpins: 0, maxSpins: 120 });
+        await spinsCollection.insertOne({ totalSpins: 0, maxSpins: 1000 });
       }
   
       console.log("✅ Connected to MongoDB!");
@@ -99,11 +101,9 @@ app.post('/api/submitEmail', async (req, res) => {
       const { email } = req.body;
       if (!email) return res.status(400).json({ error: "Email is required" });
       
-      const allowedSpins = 1; // Set allowed spins per email (adjust as needed)
-      // Check if the email already exists (case-insensitive)
+      const allowedSpins = allowedSpinsPerEmail; // Use dynamic allowed spins
       const existing = await emailsCollection.findOne({ email: email.toLowerCase() });
       if (existing) {
-        // If email exists, check if spins remain
         if (existing.spinsUsed < allowedSpins) {
           return res.json({ 
             message: "Email already exists, continuing session.", 
@@ -115,40 +115,51 @@ app.post('/api/submitEmail', async (req, res) => {
         }
       }
       
-      // Insert new email document with spinsUsed = 0 and outcomes empty.
       await emailsCollection.insertOne({ email: email.toLowerCase(), spinsUsed: 0, outcomes: [] });
       res.json({ message: "Email submitted successfully", spinsUsed: 0, allowedSpins: allowedSpins });
     } catch (error) {
       res.status(500).json({ error: "Failed to submit email" });
     }
   });
-
-// POST /api/logOutcome - record the outcome for an email.
-app.post('/api/logOutcome', async (req, res) => {
-  try {
-    const { email, outcome } = req.body;
-    if (!email || !outcome) {
-      return res.status(400).json({ error: "Email and outcome are required" });
+  
+  // ----- Updated /api/logOutcome Endpoint -----
+  app.post('/api/logOutcome', async (req, res) => {
+    try {
+      const { email, outcome } = req.body;
+      if (!email || !outcome) {
+        return res.status(400).json({ error: "Email and outcome are required" });
+      }
+      const allowedSpins = allowedSpinsPerEmail; // Use dynamic allowed spins
+      const emailDoc = await emailsCollection.findOne({ email: email.toLowerCase() });
+      if (!emailDoc) {
+        return res.status(400).json({ error: "Email not found" });
+      }
+      if (emailDoc.spinsUsed >= allowedSpins) {
+        return res.status(400).json({ error: "No spins remaining for this email" });
+      }
+      await emailsCollection.updateOne(
+        { email: email.toLowerCase() },
+        { $inc: { spinsUsed: 1 }, $push: { outcomes: outcome } }
+      );
+      res.json({ message: "Outcome logged successfully" });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to log outcome" });
     }
-    // Define the allowed spins per email (e.g., 1 spin per email).
-    const allowedSpins = 1;
-    const emailDoc = await emailsCollection.findOne({ email: email.toLowerCase() });
-    if (!emailDoc) {
-      return res.status(400).json({ error: "Email not found" });
+  });
+  
+  // ----- New Endpoint to Update Allowed Spins per Email -----
+  app.post('/api/updateAllowedSpins', async (req, res) => {
+    try {
+      const { newAllowedSpins } = req.body;
+      if (typeof newAllowedSpins !== "number" || newAllowedSpins <= 0) {
+        return res.status(400).json({ error: "Invalid allowed spins value" });
+      }
+      allowedSpinsPerEmail = newAllowedSpins;
+      res.json({ message: "Allowed spins per email updated successfully", allowedSpins: allowedSpinsPerEmail });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update allowed spins" });
     }
-    if (emailDoc.spinsUsed >= allowedSpins) {
-      return res.status(400).json({ error: "No spins remaining for this email" });
-    }
-    // Update the email document: increment spinsUsed and add the outcome.
-    await emailsCollection.updateOne(
-      { email: email.toLowerCase() },
-      { $inc: { spinsUsed: 1 }, $push: { outcomes: outcome } }
-    );
-    res.json({ message: "Outcome logged successfully" });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to log outcome" });
-  }
-});
+  });
 
 const port = process.env.PORT || 4000;
 const server = app.listen(port, '0.0.0.0', () => {
