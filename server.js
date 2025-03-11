@@ -3,6 +3,86 @@ const { MongoClient } = require('mongodb');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 
+// Google Sheets API integration
+const { google } = require('googleapis');
+const fs = require('fs');
+const path = require('path');
+
+// Load service account credentials from credentials.json
+const credentialsPath = path.join(__dirname, 'credentials.json');
+const credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
+
+const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
+const spreadsheetId = '1WT1Z20hoixLoxtRO1bNHu9msNadKlYGgnYvPk4kZcfc'; // Your Google Sheet ID
+
+// Create a JWT client using your service account credentials
+const jwtClient = new google.auth.JWT(
+  credentials.client_email,
+  null,
+  credentials.private_key,
+  SCOPES
+);
+
+const sheets = google.sheets({ version: 'v4', auth: jwtClient });
+
+// Function to append a new email to the Google Sheet
+async function appendEmailToSheet(email) {
+  try {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: 'Sheet1!A:B', // Column A for email, Column B for outcome
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      resource: {
+        values: [[email, ""]]
+      }
+    });
+    console.log("✅ Email appended to sheet:", email);
+  } catch (error) {
+    console.error("❌ Error appending email to sheet:", error);
+  }
+}
+
+// Function to update the outcome for an email in the Google Sheet
+async function updateOutcomeForEmail(email, outcome) {
+  try {
+    // Retrieve all rows from the sheet
+    const readResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'Sheet1!A:B'
+    });
+    const rows = readResponse.data.values;
+    if (!rows || rows.length === 0) {
+      console.log("No data found in sheet.");
+      return;
+    }
+    // Find the row index with the matching email (Google Sheets rows are 1-indexed)
+    let rowIndex = -1;
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i][0].toLowerCase() === email.toLowerCase()) {
+        rowIndex = i + 1;
+        break;
+      }
+    }
+    if (rowIndex === -1) {
+      console.log("Email not found in sheet:", email);
+      return;
+    }
+    // Update Column B (Outcome) for that row
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `Sheet1!B${rowIndex}`,
+      valueInputOption: 'RAW',
+      resource: {
+        values: [[outcome]]
+      }
+    });
+    console.log("✅ Outcome updated for email in sheet:", email, outcome);
+  } catch (error) {
+    console.error("❌ Error updating outcome for email:", error);
+  }
+}
+
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
@@ -96,56 +176,65 @@ app.post('/api/updateMaxSpins', async (req, res) => {
 
 // ----- New Endpoints for Email and Outcome Logging -----
 // POST /api/submitEmail - record a new email if not already used, or allow login if spins remain.
+// POST /api/submitEmail - record a new email or allow login if spins remain.
 app.post('/api/submitEmail', async (req, res) => {
-    try {
-      const { email } = req.body;
-      if (!email) return res.status(400).json({ error: "Email is required" });
-      
-      const allowedSpins = allowedSpinsPerEmail; // Use dynamic allowed spins
-      const existing = await emailsCollection.findOne({ email: email.toLowerCase() });
-      if (existing) {
-        if (existing.spinsUsed < allowedSpins) {
-          return res.json({ 
-            message: "Email already exists, continuing session.", 
-            spinsUsed: existing.spinsUsed, 
-            allowedSpins: allowedSpins 
-          });
-        } else {
-          return res.status(400).json({ error: "No spins remaining for this email" });
-        }
-      }
-      
-      await emailsCollection.insertOne({ email: email.toLowerCase(), spinsUsed: 0, outcomes: [] });
-      res.json({ message: "Email submitted successfully", spinsUsed: 0, allowedSpins: allowedSpins });
-    } catch (error) {
-      res.status(500).json({ error: "Failed to submit email" });
-    }
-  });
-  
-  // ----- Updated /api/logOutcome Endpoint -----
-  app.post('/api/logOutcome', async (req, res) => {
-    try {
-      const { email, outcome } = req.body;
-      if (!email || !outcome) {
-        return res.status(400).json({ error: "Email and outcome are required" });
-      }
-      const allowedSpins = allowedSpinsPerEmail; // Use dynamic allowed spins
-      const emailDoc = await emailsCollection.findOne({ email: email.toLowerCase() });
-      if (!emailDoc) {
-        return res.status(400).json({ error: "Email not found" });
-      }
-      if (emailDoc.spinsUsed >= allowedSpins) {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Email is required" });
+    
+    const allowedSpins = allowedSpinsPerEmail; // Dynamic allowed spins
+    const existing = await emailsCollection.findOne({ email: email.toLowerCase() });
+    if (existing) {
+      if (existing.spinsUsed < allowedSpins) {
+        return res.json({ 
+          message: "Email already exists, continuing session.", 
+          spinsUsed: existing.spinsUsed, 
+          allowedSpins: allowedSpins 
+        });
+      } else {
         return res.status(400).json({ error: "No spins remaining for this email" });
       }
-      await emailsCollection.updateOne(
-        { email: email.toLowerCase() },
-        { $inc: { spinsUsed: 1 }, $push: { outcomes: outcome } }
-      );
-      res.json({ message: "Outcome logged successfully" });
-    } catch (error) {
-      res.status(500).json({ error: "Failed to log outcome" });
     }
-  });
+    
+    await emailsCollection.insertOne({ email: email.toLowerCase(), spinsUsed: 0, outcomes: [] });
+    // Append the email to your Google Sheet.
+    appendEmailToSheet(email.toLowerCase());
+    
+    res.json({ message: "Email submitted successfully", spinsUsed: 0, allowedSpins: allowedSpins });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to submit email" });
+  }
+});
+
+  
+  // ----- Updated /api/logOutcome Endpoint -----
+// POST /api/logOutcome - record the outcome for an email.
+app.post('/api/logOutcome', async (req, res) => {
+  try {
+    const { email, outcome } = req.body;
+    if (!email || !outcome) {
+      return res.status(400).json({ error: "Email and outcome are required" });
+    }
+    const allowedSpins = allowedSpinsPerEmail; // Dynamic allowed spins
+    const emailDoc = await emailsCollection.findOne({ email: email.toLowerCase() });
+    if (!emailDoc) {
+      return res.status(400).json({ error: "Email not found" });
+    }
+    if (emailDoc.spinsUsed >= allowedSpins) {
+      return res.status(400).json({ error: "No spins remaining for this email" });
+    }
+    await emailsCollection.updateOne(
+      { email: email.toLowerCase() },
+      { $inc: { spinsUsed: 1 }, $push: { outcomes: outcome } }
+    );
+    // Update the outcome in the Google Sheet.
+    updateOutcomeForEmail(email.toLowerCase(), outcome);
+    res.json({ message: "Outcome logged successfully" });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to log outcome" });
+  }
+});
+
   
   // ----- New Endpoint to Update Allowed Spins per Email -----
   app.post('/api/updateAllowedSpins', async (req, res) => {
