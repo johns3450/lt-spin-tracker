@@ -8,7 +8,7 @@ const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
 
-const fetch = require('node-fetch');
+const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 // Load service account credentials from credentials.json
 const credentialsPath = path.join(__dirname, 'credentials.json');
