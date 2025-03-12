@@ -182,7 +182,6 @@ app.post('/api/updateMaxSpins', async (req, res) => {
 app.post('/api/submitEmail', async (req, res) => {
   try {
     const { email } = req.body;
-    const recaptcha = req.body['g-recaptcha-response'];
     if (!email) {
       return res.status(400).json({ error: "Email is required" });
     }
