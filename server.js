@@ -8,6 +8,8 @@ const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
 
+const fetch = require('node-fetch');
+
 // Load service account credentials from credentials.json
 const credentialsPath = path.join(__dirname, 'credentials.json');
 const credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
@@ -179,8 +181,23 @@ app.post('/api/updateMaxSpins', async (req, res) => {
 // POST /api/submitEmail - record a new email or allow login if spins remain.
 app.post('/api/submitEmail', async (req, res) => {
   try {
-    const { email } = req.body;
-    if (!email) return res.status(400).json({ error: "Email is required" });
+    const { email, recaptcha } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: "Email is required" });
+    }
+    if (!recaptcha) {
+      return res.status(400).json({ error: "reCAPTCHA response is required" });
+    }
+
+    // Verify the reCAPTCHA response with Google.
+    const secretKey = '6LfyJvIqAAAAAHODZaW0xDdeFhV1JWquECh56qaW'; // Replace with your actual secret key.
+    const verificationUrl = `https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${recaptcha}`;
+    const recaptchaResponse = await fetch(verificationUrl, { method: 'POST' });
+    const recaptchaData = await recaptchaResponse.json();
+
+    if (!recaptchaData.success) {
+      return res.status(400).json({ error: "reCAPTCHA verification failed" });
+    }
     
     const allowedSpins = allowedSpinsPerEmail; // Dynamic allowed spins
     const existing = await emailsCollection.findOne({ email: email.toLowerCase() });
