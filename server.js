@@ -181,13 +181,15 @@ app.post('/api/updateMaxSpins', async (req, res) => {
 // POST /api/submitEmail - record a new email or allow login if spins remain.
 app.post('/api/submitEmail', async (req, res) => {
   try {
-    const { email, recaptcha } = req.body;
+    const { email } = req.body;
+    const recaptcha = req.body['g-recaptcha-response'];
     if (!email) {
       return res.status(400).json({ error: "Email is required" });
     }
     if (!recaptcha) {
       return res.status(400).json({ error: "reCAPTCHA response is required" });
     }
+    
 
     // Verify the reCAPTCHA response with Google.
     const secretKey = '6LfyJvIqAAAAAHODZaW0xDdeFhV1JWquECh56qaW'; // Replace with your actual secret key.
